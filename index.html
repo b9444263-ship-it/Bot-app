@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Панель Бота</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        body { margin: 0; padding: 0; background: #17212b; color: white; font-family: sans-serif; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+        .header { background: #242f3d; padding: 15px; display: flex; gap: 10px; align-items: center; }
+        select { flex: 1; padding: 10px; border-radius: 8px; background: #17212b; color: white; border: 1px solid #2b3949; outline: none; }
+        .chat-area { flex: 1; overflow-y: auto; padding: 15px; display: flex; flex-direction: column; gap: 10px; }
+        .msg { background: #212d3b; padding: 10px; border-radius: 10px; max-width: 85%; align-self: flex-start; }
+        .msg.admin { background: #2b5278; align-self: flex-end; }
+        .msg .name { font-size: 12px; color: #64b5f6; font-weight: bold; }
+        .msg.admin .name { color: #ffd54f; }
+        .msg .text { font-size: 15px; margin: 4px 0; }
+        .msg .time { font-size: 10px; color: #7b8b9b; text-align: right; }
+        .input-area { padding: 10px; background: #242f3d; display: flex; gap: 10px; }
+        input[type="text"] { flex: 1; padding: 12px; border-radius: 20px; border: none; background: #17212b; color: white; outline: none; }
+        button { background: #64b5f6; color: #000; border: none; border-radius: 20px; padding: 0 20px; font-weight: bold; cursor: pointer; }
+        button:active { background: #42a5f5; }
+        .loading { text-align: center; color: #7b8b9b; margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <select id="chatSelect"><option value="">-- Выбери чат --</option></select>
+        <button onclick="loadChats()">🔄</button>
+    </div>
+    <div class="chat-area" id="chatArea"><div class="loading">Выбери чат...</div></div>
+    <div class="input-area">
+        <input type="text" id="msgInput" placeholder="Написать от имени бота..." disabled>
+        <button id="sendBtn" disabled>Отпр.</button>
+    </div>
+
+    <script>
+        let tg = window.Telegram.WebApp;
+        tg.expand();
+
+        // ⚠️ ВАЖНО: Замени это на ссылку от NGROK, когда будешь тестировать!
+        // Пример: const API_URL = "https://1234-abcd.ngrok-free.app";
+        const API_URL = "http://localhost:8080"; 
+
+        let currentChatId = null;
+        const select = document.getElementById('chatSelect');
+        const chatArea = document.getElementById('chatArea');
+        const msgInput = document.getElementById('msgInput');
+        const sendBtn = document.getElementById('sendBtn');
+
+        async function loadChats() {
+            try {
+                let res = await fetch(`${API_URL}/api/chats`);
+                let chats = await res.json();
+                select.innerHTML = '<option value="">-- Выбери чат --</option>';
+                chats.forEach(c => {
+                    let opt = document.createElement('option');
+                    opt.value = c.id; opt.innerText = c.title;
+                    select.appendChild(opt);
+                });
+            } catch (e) { console.error(e); }
+        }
+
+        async function loadMessages() {
+            if (!currentChatId) return;
+            try {
+                let res = await fetch(`${API_URL}/api/messages/${currentChatId}`);
+                let msgs = await res.json();
+                chatArea.innerHTML = '';
+                if (msgs.length === 0) { chatArea.innerHTML = '<div class="loading">Сообщений нет</div>'; return; }
+                msgs.forEach(m => {
+                    let div = document.createElement('div');
+                    div.className = 'msg' + (m.is_bot ? ' admin' : '');
+                    div.innerHTML = `<div class="name">${m.user}</div><div class="text">${m.text}</div><div class="time">${m.time}</div>`;
+                    chatArea.appendChild(div);
+                });
+                chatArea.scrollTop = chatArea.scrollHeight;
+            } catch (e) { console.error(e); }
+        }
+
+        select.addEventListener('change', (e) => {
+            currentChatId = e.target.value;
+            if (currentChatId) {
+                msgInput.disabled = false; sendBtn.disabled = false;
+                loadMessages(); setInterval(loadMessages, 3000); // Автообновление раз в 3 сек
+            } else {
+                msgInput.disabled = true; sendBtn.disabled = true;
+                chatArea.innerHTML = '<div class="loading">Выбери чат...</div>';
+            }
+        });
+
+        sendBtn.addEventListener('click', async () => {
+            const text = msgInput.value.trim();
+            if (!text || !currentChatId) return;
+            msgInput.value = '';
+            try {
+                await fetch(`${API_URL}/api/send`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ chat_id: currentChatId, text: text })
+                });
+                loadMessages();
+            } catch (e) { alert("Ошибка отправки!"); }
+        });
+
+        msgInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') sendBtn.click(); });
+        loadChats();
+    </script>
+</body>
+</html>
